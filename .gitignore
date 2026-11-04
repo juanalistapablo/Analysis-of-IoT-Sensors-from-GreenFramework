@@ -1,0 +1,5 @@
+venv/
+mes_1/dados de energia/
+__pycache__/
+*.csv
+*.xlsx
