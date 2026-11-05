@@ -3,3 +3,11 @@ mes_1/dados de energia/
 __pycache__/
 *.csv
 *.xlsx
+# Ignorar bases de dados locais
+*.csv
+dados de energia/
+dados_limpos/
+# Ignorar bases de dados locais
+*.csv
+dados de energia/
+dados_limpos/
