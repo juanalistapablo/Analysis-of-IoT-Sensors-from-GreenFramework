@@ -40,7 +40,6 @@ def preparar_dados_temporais(df, coluna_tempo="timestamp_leitura_anterior"):
         print(f"❌ Erro: Coluna '{coluna_tempo}' não encontrada.")
         return df
 
-
 def plotar_calendario_mensal(df, ano, mes, coluna):
     """Gera uma grade de gráficos (calendário) e retorna o objeto da figura."""
     filtro_mes = f"{ano}-{mes:02d}"
@@ -120,6 +119,7 @@ def plotar_calendario_mensal(df, ano, mes, coluna):
     return fig    
 
 def plotar_dias_sequenciais(df, ano, mes, coluna):
+
     """Gera gráficos diários empilhados verticalmente (um embaixo do outro).
 
     O eixo X pula de 2 em 2 horas fixando das 00:00 às 23:59.
@@ -217,3 +217,159 @@ def plotar_dias_sequenciais(df, ano, mes, coluna):
 
     plt.tight_layout()
     plt.show()
+
+import os
+import gc
+import calendar
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# ... (a sua função preparar_dados_temporais continua aqui no topo normalmente) ...
+
+def plotar_calendario_mensal(df, colunas, pasta_base="graficos_mensais", nome_medidor="medidor"):
+    """
+    Identifica automaticamente os meses/anos e plota calendários.
+    Agora aceita tanto uma string única quanto uma lista de colunas para plotagem múltipla!
+    """
+    if not hasattr(df.index, "year"):
+        print("❌ Erro: O índice do DataFrame não é temporal.")
+        return
+
+    # 1. Checa se o usuário passou uma string (1 variável) ou uma lista (várias variáveis)
+    if isinstance(colunas, str):
+        colunas_lista = [colunas]
+        nome_pasta_var = colunas.replace(".", "_")
+        titulo_grafico = colunas
+    else:
+        colunas_lista = colunas
+        nome_pasta_var = "comparacao_fases" # Nome genérico para quando há várias linhas
+        titulo_grafico = "Comparação Multivariável"
+
+    pasta_destino = os.path.join(pasta_base, f"analise_{nome_pasta_var}")
+    os.makedirs(pasta_destino, exist_ok=True)
+
+    periodos = df.index.to_period("M").unique()
+    print(f"📊 Iniciando processamento em lote ({len(periodos)} meses) para '{titulo_grafico}'...")
+
+    # Paleta de cores para quando houver várias linhas (Azul, Laranja, Verde)
+    cores = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+
+    for periodo in periodos:
+        ano = periodo.year
+        mes = periodo.month
+        
+        filtro_mes = f"{ano}-{mes:02d}"
+        try:
+            df_mes = df.loc[filtro_mes]
+        except KeyError:
+            continue
+            
+        if df_mes.empty:
+            continue
+
+        print(f"  -> Renderizando calendário: {mes:02d}/{ano}")
+
+        cal = calendar.monthcalendar(ano, mes)
+        semanas = len(cal)
+        nomes_dias = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+
+        fig, axes = plt.subplots(nrows=semanas, ncols=7, figsize=(20, 3 * semanas), sharey=True)
+        if semanas == 1: axes = [axes]
+
+        # Título com margem superior maior para caber a legenda
+        fig.suptitle(f"{titulo_grafico} - Medidor {nome_medidor} ({mes:02d}/{ano})", fontsize=18, y=1.03, fontweight="bold")
+
+        for semana_idx, semana in enumerate(cal):
+            for dia_semana_idx, dia in enumerate(semana):
+                ax = axes[semana_idx][dia_semana_idx]
+
+                if dia == 0:
+                    ax.axis("off")
+                    continue
+
+                data_str = f"{ano}-{mes:02d}-{dia:02d}"
+                try:
+                    df_dia = df_mes.loc[data_str].sort_index()
+                except KeyError:
+                    df_dia = pd.DataFrame()
+
+                # Verifica se pelo menos uma coluna tem dados
+                tem_dados = False
+                for col in colunas_lista:
+                    if col in df_dia.columns and not df_dia[col].dropna().empty:
+                        tem_dados = True
+                        break
+
+                if not tem_dados:
+                    ax.text(0.5, 0.5, "Sem\ndados", ha="center", va="center", alpha=0.3, fontsize=12)
+                    ax.set_title(f"{dia} - {nomes_dias[dia_semana_idx]}", fontsize=11)
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    continue
+                
+                # PLOTA MÚLTIPLAS LINHAS
+                for i, col in enumerate(colunas_lista):
+                    if col in df_dia.columns:
+                        ax.plot(df_dia.index, df_dia[col], color=cores[i % len(cores)], linewidth=1.5, label=col)
+                
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter("%Hh"))
+                ax.set_title(f"{dia} - {nomes_dias[dia_semana_idx]}", fontsize=11, fontweight="bold")
+                ax.grid(True, linestyle="--", alpha=0.4)
+                ax.tick_params(axis="x", rotation=0, labelsize=9)
+                ax.tick_params(axis="y", labelsize=9)
+                
+                if dia_semana_idx >= 5: ax.set_facecolor("#f4f4f4")
+
+        # Adiciona a legenda mestre no topo da figura (apenas se for mais de 1 variável)
+        if len(colunas_lista) > 1:
+            handles, labels = ax.get_legend_handles_labels()
+            fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.00), ncol=len(colunas_lista), fontsize=13, frameon=False)
+
+        plt.tight_layout()
+
+        # Defesa da RAM
+        nome_arquivo = f"{pasta_destino}/{nome_medidor}_{ano}_{mes:02d}_calendario.png"
+        fig.savefig(nome_arquivo, bbox_inches="tight", dpi=150)
+        fig.clf()
+        plt.close(fig)
+        del fig
+        gc.collect()
+
+# ==============================================================================
+
+def processar_todos_medidores(lista_caminhos, colunas, funcao_transformacao=None):
+    """
+    Função Mestra Flexível. Recebe lista de caminhos CSV, e a 'colunas'
+    (que pode ser string única ou lista de strings) e orquestra tudo com defesa de RAM.
+    """
+    import os
+    import gc
+    import pandas as pd
+    
+    for caminho_arquivo in lista_caminhos:
+        nome_medidor = os.path.basename(caminho_arquivo).replace(".csv", "")
+        print(f"\n{'='*50}")
+        print(f"🚀 Processando: {nome_medidor} | Alvo: {colunas}")
+        print(f"{'='*50}")
+
+        try:
+            df = pd.read_csv(caminho_arquivo, low_memory=False)
+
+            if funcao_transformacao is not None:
+                df = funcao_transformacao(df)
+
+            df = preparar_dados_temporais(df, coluna_tempo="timestamp_leitura_anterior")
+            plotar_calendario_mensal(df, colunas=colunas, nome_medidor=nome_medidor)
+            
+        except Exception as e:
+            print(f"❌ Erro ao processar {nome_medidor}: {e}")
+
+        finally:
+            if 'df' in locals():
+                del df
+            gc.collect()
+            print(f"🧹 Memória de {nome_medidor} liberada.")
+            
+    print("\n✅ LOTE FINALIZADO!")
