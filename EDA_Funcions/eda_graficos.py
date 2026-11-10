@@ -229,31 +229,31 @@ import pandas as pd
 
 def plotar_calendario_mensal(df, colunas, pasta_base="graficos_mensais", nome_medidor="medidor"):
     """
-    Identifica automaticamente os meses/anos e plota calendários.
-    Agora aceita tanto uma string única quanto uma lista de colunas para plotagem múltipla!
+    Gera calendários com Eixo Y Duplo (Tensão e Corrente no mesmo dia).
+    Mantém as regras de cores (Azul/Amarelo) e estilos de linha (Contínua/Tracejada/Pontilhada).
     """
+    import os
+    import gc
+    import calendar
+    import matplotlib.dates as mdates
+    import matplotlib.pyplot as plt
+    import pandas as pd
+
     if not hasattr(df.index, "year"):
         print("❌ Erro: O índice do DataFrame não é temporal.")
         return
 
-    # 1. Checa se o usuário passou uma string (1 variável) ou uma lista (várias variáveis)
-    if isinstance(colunas, str):
-        colunas_lista = [colunas]
-        nome_pasta_var = colunas.replace(".", "_")
-        titulo_grafico = colunas
-    else:
-        colunas_lista = colunas
-        nome_pasta_var = "comparacao_fases" # Nome genérico para quando há várias linhas
-        titulo_grafico = "Comparação Multivariável"
+    colunas_lista = [colunas] if isinstance(colunas, str) else colunas
+    
+    # Nome genérico para a análise combinada
+    nome_pasta_var = "tensao_e_corrente"
+    titulo_grafico = "Tensão (Azul) e Corrente (Amarelo) - 3 Fases"
 
     pasta_destino = os.path.join(pasta_base, f"analise_{nome_pasta_var}")
     os.makedirs(pasta_destino, exist_ok=True)
 
     periodos = df.index.to_period("M").unique()
-    print(f"📊 Iniciando processamento em lote ({len(periodos)} meses) para '{titulo_grafico}'...")
-
-    # Paleta de cores para quando houver várias linhas (Azul, Laranja, Verde)
-    cores = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+    print(f"📊 Iniciando lote ({len(periodos)} meses) para '{titulo_grafico}'...")
 
     for periodo in periodos:
         ano = periodo.year
@@ -277,8 +277,11 @@ def plotar_calendario_mensal(df, colunas, pasta_base="graficos_mensais", nome_me
         fig, axes = plt.subplots(nrows=semanas, ncols=7, figsize=(20, 3 * semanas), sharey=True)
         if semanas == 1: axes = [axes]
 
-        # Título com margem superior maior para caber a legenda
         fig.suptitle(f"{titulo_grafico} - Medidor {nome_medidor} ({mes:02d}/{ano})", fontsize=18, y=1.03, fontweight="bold")
+
+        # Variáveis para capturar uma única legenda limpa no topo
+        linhas_legenda = []
+        labels_legenda = []
 
         for semana_idx, semana in enumerate(cal):
             for dia_semana_idx, dia in enumerate(semana):
@@ -294,12 +297,7 @@ def plotar_calendario_mensal(df, colunas, pasta_base="graficos_mensais", nome_me
                 except KeyError:
                     df_dia = pd.DataFrame()
 
-                # Verifica se pelo menos uma coluna tem dados
-                tem_dados = False
-                for col in colunas_lista:
-                    if col in df_dia.columns and not df_dia[col].dropna().empty:
-                        tem_dados = True
-                        break
+                tem_dados = any(col in df_dia.columns and not df_dia[col].dropna().empty for col in colunas_lista)
 
                 if not tem_dados:
                     ax.text(0.5, 0.5, "Sem\ndados", ha="center", va="center", alpha=0.3, fontsize=12)
@@ -308,10 +306,38 @@ def plotar_calendario_mensal(df, colunas, pasta_base="graficos_mensais", nome_me
                     ax.set_yticks([])
                     continue
                 
-                # PLOTA MÚLTIPLAS LINHAS
-                for i, col in enumerate(colunas_lista):
+                # ax2 será o nosso eixo Y secundário (lado direito)
+                ax2 = None
+                
+                # REGRAS DINÂMICAS DE CORES, ESTILOS E EIXOS
+                for col in colunas_lista:
                     if col in df_dia.columns:
-                        ax.plot(df_dia.index, df_dia[col], color=cores[i % len(cores)], linewidth=1.5, label=col)
+                        
+                        # Define a cor e em qual eixo plotar
+                        if 'voltage' in col.lower():
+                            cor = '#1f77b4'  # Azul
+                            eixo = ax
+                        elif 'current' in col.lower():
+                            cor = '#d4ac0d'  # Amarelo Ouro
+                            if ax2 is None:
+                                ax2 = ax.twinx() # Cria o eixo Y direito na primeira vez que achar corrente
+                            eixo = ax2
+                        else:
+                            cor = '#2ca02c'  # Verde
+                            eixo = ax
+
+                        # Define o estilo da linha
+                        if '.a' in col.lower(): estilo = '-'      # Contínua
+                        elif '.b' in col.lower(): estilo = '--'   # Tracejada
+                        elif '.c' in col.lower(): estilo = ':'    # Pontilhada
+                        else: estilo = '-'
+
+                        linha = eixo.plot(df_dia.index, df_dia[col], color=cor, linestyle=estilo, linewidth=1.5, label=col)
+                        
+                        # Salva a referência da linha para a legenda mestre
+                        if col not in labels_legenda:
+                            linhas_legenda.append(linha[0])
+                            labels_legenda.append(col)
                 
                 ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))
                 ax.xaxis.set_major_formatter(mdates.DateFormatter("%Hh"))
@@ -320,23 +346,27 @@ def plotar_calendario_mensal(df, colunas, pasta_base="graficos_mensais", nome_me
                 ax.tick_params(axis="x", rotation=0, labelsize=9)
                 ax.tick_params(axis="y", labelsize=9)
                 
+                # Tratamento do Eixo Secundário (para não sobrepor números no meio do calendário)
+                if ax2 is not None:
+                    if dia_semana_idx < 6:
+                        ax2.set_yticks([]) # Oculta os números da corrente nos dias do meio
+                    else:
+                        ax2.tick_params(axis="y", labelsize=9) # Mostra os números apenas no Domingo (coluna final)
+
                 if dia_semana_idx >= 5: ax.set_facecolor("#f4f4f4")
 
-        # Adiciona a legenda mestre no topo da figura (apenas se for mais de 1 variável)
-        if len(colunas_lista) > 1:
-            handles, labels = ax.get_legend_handles_labels()
-            fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.00), ncol=len(colunas_lista), fontsize=13, frameon=False)
+        # Adiciona a legenda unificada no topo
+        if linhas_legenda:
+            fig.legend(linhas_legenda, labels_legenda, loc='upper center', bbox_to_anchor=(0.5, 1.00), ncol=len(colunas_lista), fontsize=13, frameon=False)
 
         plt.tight_layout()
 
-        # Defesa da RAM
         nome_arquivo = f"{pasta_destino}/{nome_medidor}_{ano}_{mes:02d}_calendario.png"
         fig.savefig(nome_arquivo, bbox_inches="tight", dpi=150)
         fig.clf()
         plt.close(fig)
         del fig
         gc.collect()
-
 # ==============================================================================
 
 def processar_todos_medidores(lista_caminhos, colunas, funcao_transformacao=None):

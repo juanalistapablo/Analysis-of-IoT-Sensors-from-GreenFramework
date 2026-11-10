@@ -7,10 +7,6 @@ from EDA_Funcions.eda_utils import calcular_potencia_ativa_total
 from EDA_Funcions.eda_graficos import preparar_dados_temporais
 
 def carregar_e_preparar_todos(caminhos_dict):
-    """
-    Lê todos os CSVs, calcula a potência ativa e prepara o índice temporal.
-    Retorna um único DataFrame multivariado (Matriz N x 7).
-    """
     dfs = []
     for nome_predio, caminho in caminhos_dict.items():
         print(f"Carregando e preparando: {nome_predio}")
@@ -18,15 +14,19 @@ def carregar_e_preparar_todos(caminhos_dict):
         df = calcular_potencia_ativa_total(df)
         df = preparar_dados_temporais(df, coluna_tempo='timestamp_leitura_anterior')
         
-        # Renomeia a coluna de potência para o nome do prédio (ex: 'CCET', 'BIO')
-        df = df[['active_power.total']].rename(columns={'active_power.total': nome_predio})
-        dfs.append(df)
+        # --- LINHA NOVA PARA CORRIGIR O ERRO ---
+        # Remove horários duplicados, mantendo apenas o último registro salvo daquele horário
+        df = df[~df.index.duplicated(keep='last')] 
         
-    # Junta todos os DataFrames pelo índice de tempo (Outer Join para não perder dados)
+        # Opcional: Renomear a coluna de potência para saber de qual prédio é
+        # df = df.rename(columns={'potencia_ativa_total': f'potencia_{nome_predio}'})
+        
+        dfs.append(df)
+
+    # Junta todos os DataFrames pelo índice de tempo
     df_multivariado = pd.concat(dfs, axis=1)
     df_multivariado = df_multivariado.sort_index()
     return df_multivariado
-
 def plotar_series_sobrepostas(df_multivariado, ano, mes, pasta_destino="graficos_cruzados"):
     """
     Gera um gráfico de linhas sobrepostas para todos os prédios no mês especificado.
