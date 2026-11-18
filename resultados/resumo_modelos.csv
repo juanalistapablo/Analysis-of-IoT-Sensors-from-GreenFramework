@@ -1,0 +1,17 @@
+modelo,taxa_alarme,roc_auc,pr_auc,recall_eventos,acerto_escopo_afundamentos
+IF-individual,0.5,0.631,0.076,16.1,77.4
+IF-individual,1.0,0.631,0.076,23.9,81.2
+IF-individual,2.0,0.631,0.076,33.2,91.5
+IF-individual,5.0,0.631,0.076,46.8,90.1
+IF-multivariado,0.5,0.68,0.203,35.0,94.3
+IF-multivariado,1.0,0.68,0.203,42.5,94.1
+IF-multivariado,2.0,0.68,0.203,46.4,91.7
+IF-multivariado,5.0,0.68,0.203,51.8,87.9
+LOF-individual,0.5,0.796,0.132,38.2,96.9
+LOF-individual,1.0,0.796,0.132,53.6,100.0
+LOF-individual,2.0,0.796,0.132,63.6,98.3
+LOF-individual,5.0,0.796,0.132,74.6,95.0
+LOF-multivariado,0.5,0.816,0.198,46.4,100.0
+LOF-multivariado,1.0,0.816,0.198,57.1,99.2
+LOF-multivariado,2.0,0.816,0.198,71.8,95.8
+LOF-multivariado,5.0,0.816,0.198,82.1,89.2
